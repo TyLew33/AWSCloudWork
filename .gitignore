@@ -1,0 +1,30 @@
+# Environment variables
+.env
+.env.*
+*.env
+
+# AWS credentials (extra safety)
+.aws/
+**/.aws/
+
+# Dev containers
+.devcontainer/.env
+
+# Node / Python noise
+node_modules/
+__pycache__/
+*.pyc
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+
+# VS Code
+.vscode/
+!.vscode/extensions.json
+
+# OS
+.DS_Store
+Thumbs.db
