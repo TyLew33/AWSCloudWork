@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+echo "--delete bucket"
+
+BUCKET="$1"
+
+aws s3api delete-bucket \
+  --bucket "$BUCKET" \
+
+
+echo "✅ Bucket '$BUCKET' deleted"

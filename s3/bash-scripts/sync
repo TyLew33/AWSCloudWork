@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+echo "== sync"
+
+#Exit script if any command returns non zero status
+set -euo pipefail
+
+#check for bucket name
+if [ -z "$1" ]; then
+  echo "Usage: $0 <bucket-name>"
+  exit 1
+fi
+
+
+#check for filename prefix
+if [ -z "$2" ]; then
+  echo "Usage: $0 <bucket-name>"
+  exit 1
+fi
+
+BUCKET="$1"
+FILENAME_PREFIX="$2"
+
+# ...existing code...
+OUTPUT_DIR="tm/s3-bash-scripts"
+
+#CREATE THE OUTPUT DIR IF IT DOESN'T EXIST
+mkdir -p "$OUTPUT_DIR"
+
+#generate a random number
+#to determine how many files to create
+NUM_FILES=$((RANDOM % 6 + 5))
+
+for ((i=1; i<=NUM_FILES; i++)); do
+  FILENAME="$OUTPUT_DIR/${FILENAME_PREFIX}_$i.txt"
+
+  dd if=/dev/urandom of="$FILENAME" bs=1024 count=$((RANDOM % 1024 + 1)) 2>/dev/null
+
+  #generate random content and append a readable note
+  echo "This is file number $i with random content: $RANDOM" >> "$FILENAME"
+done
+
+tree "$OUTPUT_DIR"
+# ...existing code...
+
+
+aws s3 sync "$OUTPUT_DIR" "s3://$BUCKET/$OUTPUT_DIR" --delete

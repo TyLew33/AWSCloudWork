@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+echo "--list objects in bucket"
+
+BUCKET="$1"
+
+aws s3api list-objects-v2 \
+  --bucket "$BUCKET" \
+
+
+echo " listing the objects in Bucket '$BUCKET' "

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+echo "-- list bucket"
+
+aws s3api list-buckets | jq '.Buckets | sort_by(.CreationDate) | reverse | .[:5]'
+
+echo "..."

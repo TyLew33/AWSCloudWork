@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+echo "--create bucket"
+
+#check for bucket name argument
+if [ -z "$1" ]; then
+  echo "Usage: $0 <bucket-name>"
+  exit 1
+fi
+
+BUCKET="$1"
+
+#create the S3 bucket in us-east-2 region
+aws s3api create-bucket \
+  --bucket "$BUCKET" \
+  --create-bucket-configuration LocationConstraint=us-east-2
+  
+  
