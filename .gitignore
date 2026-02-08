@@ -15,11 +15,28 @@ node_modules/
 __pycache__/
 *.pyc
 
-# Terraform
+# Terraform generated files
 .terraform/
+.terraform.lock.hcl
+
+# Terraform state files
 *.tfstate
 *.tfstate.*
+
+# Sensitive variable files
+*.tfvars
+*.tfvars.json
+
+# Crash log files
 crash.log
+crash.*.log
+
+# Secret files
+*.rancher-compose.yml
+*.tfvars.enc
+*.vault.yml
+.terraform.rc
+terraform.rc
 
 # VS Code
 .vscode/
