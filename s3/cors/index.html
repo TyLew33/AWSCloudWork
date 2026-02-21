@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>My AWS S3 Static Site</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(to right, #141e30, #243b55);
+            color: white;
+            text-align: center;
+            margin-top: 100px;
+        }
+        .container {
+            background: rgba(255,255,255,0.1);
+            padding: 30px;
+            border-radius: 10px;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Real Ones!</h1>
+        <p>This site is hosted from an S3 bucket.</p>
+        <p id="timestamp"></p>
+    </div>
+
+    <script>
+        document.getElementById("timestamp").innerText =
+            "Loaded at: " + new Date().toISOString();
+    </script>
+</body>
+</html>
