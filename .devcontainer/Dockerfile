@@ -23,7 +23,7 @@ RUN curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /usr/sh
     && echo "deb [signed-by=/usr/share/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" \
     > /etc/apt/sources.list.d/hashicorp.list \
     && apt-get update \
-    && apt-get install -y terraform=1.14.4-1
+    && apt-get install -y terraform
 
 
 RUN aws --version && terraform version
