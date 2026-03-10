@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+#CREATE VPC
+VPC_ID=$(aws ec2 create-vpc \
+--cidr-block 172.16.0.0/16 \
+--tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value=MyVPC}]' \
+--region us-east-2 \
+--query Vpc.VpcId \
+--output text)
+
+echo "VPC ID: $VPC_ID"
+
+vpc-0bdc418fa800e0b22
