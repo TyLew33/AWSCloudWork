@@ -1,10 +1,26 @@
 #!/usr/bin/env bash
 
+set -e
+
 if [ -z "$1" ]; then
   echo "Usage: $0 <vpc-id>"
 else
   export VPC_ID=$1
 fi
 
+#Delete Internet Gateway
+IGW_ID=$(aws ec2 describe-internet-gateways \  
+--filters "Name=attachment.vpc-id,Values=$VPC_ID" \  
+--query "InternetGateways[0].InternetGatewayId" \
+--output text)
+
+aws ec2 detach-internet-gateway \
+--internet-gateway-id $IGW_ID \
+--vpc-id $VPC_ID
+
+aws ec2 delete-internet-gateway \
+--internet-gateway-id $IGW_ID
+
 #Delete vpc
 aws ec2 delete-vpc --vpc-id $VPC_ID 
+
