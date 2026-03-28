@@ -1,0 +1,19 @@
+Resources:
+  Myuser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: myinlineuser
+  MyUserPolicy:
+    Type: AWS::IAM::UserPolicy
+    Properties:
+      UserName: !Ref Myuser
+      PolicyName: myinlinepolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: myinlinepolicylistaccess
+            Effect: Allow
+            Action:
+              - iam:ListRole
+              - iam:ListUsers
+            Resource: '*'
