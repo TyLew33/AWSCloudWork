@@ -1,0 +1,22 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+  MyAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: "MyAutoScalingGroup"
+      LaunchConfigurationName: !Ref MyLaunchConfiguration
+      MinSize: "1"
+      MaxSize: "3"
+      DesiredCapacity: "2"
+      VPCZoneIdentifier:
+        - subnet-12345678
+        - subnet-87654321
+
+  MyLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      LaunchConfigurationName: "MyLaunchConfiguration"
+      ImageId: "ami-0abcdef1234567890"
+      InstanceType: "t2.micro"
+      SecurityGroups:
+        - sg-12345678
