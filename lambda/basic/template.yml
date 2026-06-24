@@ -1,0 +1,18 @@
+Transform: AWS::Serverless-2016-10-31
+
+Resources:
+
+  BasicFunction:
+    Type: AWS::Serverless::Function
+
+    Properties:
+
+      Handler: function.handler
+
+      Runtime: python3.12
+
+      CodeUri: .
+
+      MemorySize: 128
+
+      Timeout: 10
