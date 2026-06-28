@@ -1,0 +1,13 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "lambda-container-lab"
+resolve_s3 = true
+s3_prefix = "lambda-container-lab"
+region = "us-east-2"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+image_repositories = ["ContainerFunction=687035308177.dkr.ecr.us-east-2.amazonaws.com/lambdacontainerlab00eddcbb/containerfunctionf82d3e87repo"]
+
+[default.global.parameters]
+region = "us-east-2"

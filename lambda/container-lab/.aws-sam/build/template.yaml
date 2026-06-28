@@ -1,0 +1,12 @@
+Transform: AWS::Serverless-2016-10-31
+Resources:
+  ContainerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      ImageUri: containerfunction:latest
+    Metadata:
+      DockerContext: /home/tyree/repos/AWS-Examples/lambda/container-lab
+      DockerTag: latest
+      Dockerfile: Dockerfile
+      SamResourceId: ContainerFunction
