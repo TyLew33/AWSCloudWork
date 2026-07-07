@@ -1,0 +1,15 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Resources:
+  InventoryProcessor:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: InventoryProcessor
+      Runtime: python3.13
+      Handler: app.lambda_handler
+      CodeUri: .
+      MemorySize: 128
+      Timeout: 10
+      # 👇 ADD THIS BLOCK TO FIX THE PERMISSIONS
+      Policies:
+        - AWSLambdaSQSQueueExecutionRole

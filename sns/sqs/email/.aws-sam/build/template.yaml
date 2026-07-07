@@ -1,0 +1,16 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Resources:
+  EmailProcessor:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: EmailProcessor
+      Runtime: python3.13
+      Handler: app.lambda_handler
+      CodeUri: EmailProcessor
+      MemorySize: 128
+      Timeout: 10
+      Policies:
+      - AWSLambdaSQSQueueExecutionRole
+    Metadata:
+      SamResourceId: EmailProcessor
