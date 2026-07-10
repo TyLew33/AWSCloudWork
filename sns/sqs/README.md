@@ -165,3 +165,31 @@ aws sns unsubscribe \
 
 aws sns unsubscribe \
     --subscription-arn "arn:aws:sns:us-east-2:687035308177:OrderPlaced:f47b2c5e-34b2-414c-9bbd-bb7d4b41eef3"
+
+aws sqs delete-queue \
+    --queue-url $INV_QUEUE_URL
+
+aws sqs delete-queue \
+    --queue-url $EMAIL_QUEUE_URL
+
+aws sns delete-topic \
+    --topic-arn $TOPIC_ARN
+
+aws cloudformation delete-stack \
+    --stack-name inventory-lambda-stack
+
+aws cloudformation delete-stack \
+    --stack-name inventory-lambda-stack
+
+aws cloudformation delete-stack \
+    --stack-name email-lambda-stack
+
+aws sns delete-topic \
+    --topic-arn $TOPIC_ARN
+
+aws sqs delete-queue \
+    --queue-url $INV_QUEUE_URL
+
+aws sqs delete-queue \
+    --queue-url $EMAIL_QUEUE_URL
+
