@@ -1,0 +1,87 @@
+{
+  "Comment": "Simple Mission Workflow",
+
+  "StartAt": "ValidateMission",
+
+  "States": {
+
+    "ValidateMission": {
+
+      "Type": "Task",
+
+      "Resource": "${ValidateMissionFunctionArn}",
+
+      "Next": "WaitState",
+
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+
+          "IntervalSeconds": 2,
+
+          "MaxAttempts": 3,
+
+          "BackoffRate": 2
+        }
+      ]
+    },
+
+    "WaitState": {
+
+      "Type": "Wait",
+
+      "Seconds": 5,
+
+      "Next": "CompleteMission"
+
+    },
+
+    "CompleteMission": {
+
+      "Type": "Task",
+
+      "Resource": "${CompleteMissionFunctionArn}",
+
+      "Next": "MissionSuccess"
+
+    },
+
+    "MissionSuccess": {
+
+      "Type": "Choice",
+
+      "Choices": [
+
+        {
+
+          "Variable": "$.missionSuccess",
+
+          "BooleanEquals": true,
+
+          "Next": "Success"
+
+        }
+
+      ],
+
+      "Default": "Failure"
+
+    },
+
+    "Success": {
+
+      "Type": "Succeed"
+
+    },
+
+    "Failure": {
+
+      "Type": "Fail"
+
+    }
+
+  }
+
+}

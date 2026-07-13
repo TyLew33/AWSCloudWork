@@ -1,0 +1,60 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Resources:
+
+  ValidateMissionFunction:
+
+    Type: AWS::Serverless::Function
+
+    Properties:
+
+      Handler: app.lambda_handler
+
+      Runtime: python3.13
+
+      CodeUri: validate/
+
+      Policies:
+
+        - AWSLambdaBasicExecutionRole
+
+  CompleteMissionFunction:
+
+    Type: AWS::Serverless::Function
+
+    Properties:
+
+      Handler: app.lambda_handler
+
+      Runtime: python3.13
+
+      CodeUri: complete/
+
+      Policies:
+
+        - AWSLambdaBasicExecutionRole
+
+  MissionStateMachine:
+
+    Type: AWS::Serverless::StateMachine
+
+    Properties:
+
+      DefinitionUri: statemachine/mission.asl.json
+
+      DefinitionSubstitutions:
+
+        ValidateMissionFunctionArn: !GetAtt ValidateMissionFunction.Arn
+
+        CompleteMissionFunctionArn: !GetAtt CompleteMissionFunction.Arn
+
+      Policies:
+
+        - LambdaInvokePolicy:
+
+            FunctionName: !Ref ValidateMissionFunction
+
+        - LambdaInvokePolicy:
+
+            FunctionName: !Ref CompleteMissionFunction
