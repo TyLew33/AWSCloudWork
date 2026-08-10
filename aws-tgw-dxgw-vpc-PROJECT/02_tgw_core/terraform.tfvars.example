@@ -1,0 +1,5 @@
+tgw_asn      = 64512
+core_profile  = "core"
+aws_region   = "us-east-2"
+environment  = "prod"
+project_name = "example-landing-zone"

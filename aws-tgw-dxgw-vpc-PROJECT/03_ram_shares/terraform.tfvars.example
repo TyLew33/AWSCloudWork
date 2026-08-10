@@ -1,0 +1,11 @@
+workload_principal_account_ids = ["222222222222"]
+
+state_bucket     = "opentofu-state-bucket"
+state_region     = "us-east-2"
+state_profile    = "core"
+state_key_prefix = "landing-zone/example-workload-prod"
+
+core_profile  = "core"
+aws_region   = "us-east-2"
+environment  = "prod"
+project_name = "example-landing-zone"

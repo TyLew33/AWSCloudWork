@@ -1,0 +1,14 @@
+resolver_rules = {
+  "internal_example_com"     = "rslvr-rr-xxxxxxxxxxxxxxxxx"
+  "dev_internal_example_com" = "rslvr-rr-yyyyyyyyyyyyyyyyy"
+}
+
+state_bucket     = "opentofu-state-bucket"
+state_region     = "us-east-2"
+state_profile    = "core"
+state_key_prefix = "landing-zone/example-workload-prod"
+
+workload_profile = "workload"
+aws_region       = "us-east-2"
+environment      = "prod"
+project_name     = "example-landing-zone"

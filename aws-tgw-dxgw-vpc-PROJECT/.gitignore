@@ -1,0 +1,26 @@
+.terraform/
+.tofu/
+
+*.tfstate
+*.tfstate.backup
+*.tfstate.lock.info
+terraform.tfstate.d/
+
+# Real values go in this — never commit it, only the .example template
+terraform.tfvars
+*.auto.tfvars
+terraform.tfvars.json
+
+crash.log
+crash.*.log
+
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+.terraformrc
+terraform.rc
+.vscode/
+.idea/
+.DS_Store
