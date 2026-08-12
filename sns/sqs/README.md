@@ -3,7 +3,7 @@
 aws sns create-topic \
     --name OrderPlaced
 
-TOPIC_ARN=<arn:aws:sns:us-east-2:687035308177:OrderPlaced>
+TOPIC_ARN=<arn:aws:sns:us-east-2:111122223333:OrderPlaced>
 
 #Create Inventory Queue
 aws sqs create-queue \
@@ -17,31 +17,31 @@ aws sqs create-queue \
 aws sqs get-queue-url \
     --queue-name InventoryQueue
 
-"QueueUrl": "https://sqs.us-east-2.amazonaws.com/687035308177/InventoryQueue"
+"QueueUrl": "https://sqs.us-east-2.amazonaws.com/111122223333/InventoryQueue"
 
 aws sqs get-queue-url \
     --queue-name EmailQueue
 
-"QueueUrl": "https://sqs.us-east-2.amazonaws.com/687035308177/EmailQueue"
+"QueueUrl": "https://sqs.us-east-2.amazonaws.com/111122223333/EmailQueue"
 
 GET QUEUE ARNs:
 aws sqs get-queue-attributes \
     --queue-url $INV_QUEUE_URL \
     --attribute-names QueueArn
     
-    "arn:aws:sqs:us-east-2:687035308177:InventoryQueue"
+    "arn:aws:sqs:us-east-2:111122223333:InventoryQueue"
 
 aws sqs get-queue-attributes \
     --queue-url $EMAIL_QUEUE_URL \
     --attribute-names QueueArn
 
- "arn:aws:sqs:us-east-2:687035308177:EmailQueue"
+ "arn:aws:sqs:us-east-2:111122223333:EmailQueue"
 
-INV_QUEUE_ARN="arn:aws:sqs:us-east-2:687035308177:InventoryQueue"
-EMAIL_QUEUE_ARN="arn:aws:sqs:us-east-2:687035308177:EmailQueue"
-TOPIC_ARN="arn:aws:sns:us-east-2:687035308177:OrderPlaced"
-INV_QUEUE_URL="https://sqs.us-east-2.amazonaws.com/687035308177/InventoryQueue"
-EMAIL_QUEUE_URL="https://sqs.us-east-2.amazonaws.com/687035308177/EmailQueue"
+INV_QUEUE_ARN="arn:aws:sqs:us-east-2:111122223333:InventoryQueue"
+EMAIL_QUEUE_ARN="arn:aws:sqs:us-east-2:111122223333:EmailQueue"
+TOPIC_ARN="arn:aws:sns:us-east-2:111122223333:OrderPlaced"
+INV_QUEUE_URL="https://sqs.us-east-2.amazonaws.com/111122223333/InventoryQueue"
+EMAIL_QUEUE_URL="https://sqs.us-east-2.amazonaws.com/111122223333/EmailQueue"
 
 #POLICY TO ALLOW SNS MESSAGES TO THE QUEUES(SQS)
 aws sqs set-queue-attributes \
@@ -161,10 +161,10 @@ aws lambda delete-function \
     --function-name EmailProcessor
 
 aws sns unsubscribe \
-    --subscription-arn "arn:aws:sns:us-east-2:687035308177:OrderPlaced:a39f901a-7e11-4fce-bd1f-2383cea3ad85"
+    --subscription-arn "arn:aws:sns:us-east-2:111122223333:OrderPlaced:a39f901a-7e11-4fce-bd1f-2383cea3ad85"
 
 aws sns unsubscribe \
-    --subscription-arn "arn:aws:sns:us-east-2:687035308177:OrderPlaced:f47b2c5e-34b2-414c-9bbd-bb7d4b41eef3"
+    --subscription-arn "arn:aws:sns:us-east-2:111122223333:OrderPlaced:f47b2c5e-34b2-414c-9bbd-bb7d4b41eef3"
 
 aws sqs delete-queue \
     --queue-url $INV_QUEUE_URL

@@ -8,10 +8,10 @@
         "Service": "sns.amazonaws.com"
       },
       "Action": "SQS:SendMessage",
-      "Resource": "arn:aws:sqs:us-east-2:687035308177:InventoryQueue",
+      "Resource": "arn:aws:sqs:us-east-2:111122223333:InventoryQueue",
       "Condition": {
         "ArnEquals": {
-          "aws:SourceArn": "arn:aws:sns:us-east-2:687035308177:OrderPlaced"
+          "aws:SourceArn": "arn:aws:sns:us-east-2:111122223333:OrderPlaced"
         }
       }
     }
