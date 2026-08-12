@@ -5,22 +5,21 @@ echo "== sync"
 set -euo pipefail
 
 #check for bucket name
-if [ -z "$1" ]; then
-  echo "Usage: $0 <bucket-name>"
+if [ -z "${1:-}" ]; then
+  echo "Usage: $0 <bucket-name> <filename-prefix>"
   exit 1
 fi
 
 
 #check for filename prefix
-if [ -z "$2" ]; then
-  echo "Usage: $0 <bucket-name>"
+if [ -z "${2:-}" ]; then
+  echo "Usage: $0 <bucket-name> <filename-prefix>"
   exit 1
 fi
 
 BUCKET="$1"
 FILENAME_PREFIX="$2"
 
-# ...existing code...
 OUTPUT_DIR="tm/s3-bash-scripts"
 
 #CREATE THE OUTPUT DIR IF IT DOESN'T EXIST
@@ -39,8 +38,6 @@ for ((i=1; i<=NUM_FILES; i++)); do
   echo "This is file number $i with random content: $RANDOM" >> "$FILENAME"
 done
 
-tree "$OUTPUT_DIR"
-# ...existing code...
-
+command -v tree >/dev/null 2>&1 && tree "$OUTPUT_DIR"
 
 aws s3 sync "$OUTPUT_DIR" "s3://$BUCKET/$OUTPUT_DIR" --delete

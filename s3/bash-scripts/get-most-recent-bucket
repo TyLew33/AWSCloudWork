@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 echo "-- list most recent bucket"
 aws s3api list-buckets --output json | jq -r '.Buckets | sort_by(.CreationDate) | last | .Name'

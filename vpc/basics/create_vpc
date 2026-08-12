@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -e
+set -euo pipefail
 
 #CREATE VPC
 VPC_ID=$(aws ec2 create-vpc \

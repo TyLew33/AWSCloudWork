@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 echo "== put-object"
 
+set -euo pipefail
+
 #check for bucket name
-if [ -z "$1" ]; then
-  echo "Usage: $0 <bucket-name>"
+if [ -z "${1:-}" ]; then
+  echo "Usage: $0 <bucket-name> <filename>"
   exit 1
 fi
 
 
 #check for filename prefix
-if [ -z "$2" ]; then
-  echo "Usage: $0 <bucket-name>"
+if [ -z "${2:-}" ]; then
+  echo "Usage: $0 <bucket-name> <filename>"
   exit 1
 fi
 
