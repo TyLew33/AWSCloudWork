@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 
-set -e
+set -euo pipefail
 
-if [ -z "$1" ]; then
+if [ -z "${1:-}" ]; then
   echo "Usage: $0 <vpc-id>"
+  exit 1
 else
   export VPC_ID=$1
 fi
 
 #Delete Internet Gateway
-IGW_ID=$(aws ec2 describe-internet-gateways \  
---filters "Name=attachment.vpc-id,Values=$VPC_ID" \  
+IGW_ID=$(aws ec2 describe-internet-gateways \
+--filters "Name=attachment.vpc-id,Values=$VPC_ID" \
 --query "InternetGateways[0].InternetGatewayId" \
 --output text)
 
