@@ -75,6 +75,7 @@ guide.
 
 | Directory | Stack | What it demonstrates |
 |---|---|---|
+| `inspection-vpc-PROJECT/` | OpenTofu | A staged, single-account centralized-inspection VPC lab — Prod and Dev VPCs that reach the internet but not each other, enforced by AWS Network Firewall behind a Transit Gateway. Applied and validated end-to-end against live AWS resources (see its README's Verification section). |
 | `Step-Functions/` | AWS SAM, ASL | A Step Functions state machine (validate → complete) with unit and integration tests under `sam-app/tests/`. |
 | `lambda/` | SAM, Docker/ECR | A basic Lambda handler plus a container-image Lambda built and pushed to ECR. |
 | `sns/sqs/` | SAM, IAM policy JSON | SNS fan-out to per-purpose SQS queues (email, inventory), each with its own scoped access policy. |

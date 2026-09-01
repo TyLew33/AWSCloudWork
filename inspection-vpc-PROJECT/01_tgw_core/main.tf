@@ -12,7 +12,7 @@ resource "aws_ec2_transit_gateway" "tgw" {
   }
 
   lifecycle {
-    prevent_destroy = true
+    # prevent_destroy = true  # commented out for lab teardown - re-enable if you keep this running
   }
 }
 
@@ -28,7 +28,7 @@ resource "aws_ec2_transit_gateway_route_table" "spoke" {
   }
 
   lifecycle {
-    prevent_destroy = true
+    # prevent_destroy = true  # commented out for lab teardown - re-enable if you keep this running
   }
 }
 
@@ -43,6 +43,6 @@ resource "aws_ec2_transit_gateway_route_table" "inspection" {
   }
 
   lifecycle {
-    prevent_destroy = true
+    # prevent_destroy = true  # commented out for lab teardown - re-enable if you keep this running
   }
 }
