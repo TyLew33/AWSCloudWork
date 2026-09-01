@@ -1,0 +1,5 @@
+tgw_asn      = 64512
+aws_profile  = "default"
+aws_region   = "us-east-2"
+environment  = "lab"
+project_name = "inspection-vpc-project"

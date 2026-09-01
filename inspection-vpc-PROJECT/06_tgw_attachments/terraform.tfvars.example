@@ -1,0 +1,8 @@
+state_bucket     = "inspection-vpc-tfstate-bucket"
+state_region     = "us-east-2"
+state_profile    = "default"
+state_key_prefix = "inspection-vpc-project"
+aws_profile      = "default"
+aws_region       = "us-east-2"
+environment      = "lab"
+project_name     = "inspection-vpc-project"

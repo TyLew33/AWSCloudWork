@@ -1,0 +1,6 @@
+state_bucket_name      = "inspection-vpc-tfstate-bucket"
+state_lock_table_name  = "inspection-vpc-tfstate-lock"
+aws_profile            = "default"
+aws_region             = "us-east-2"
+environment            = "project"
+project_name           = "inspection-vpc-project"

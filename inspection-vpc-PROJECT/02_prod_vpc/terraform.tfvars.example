@@ -1,0 +1,6 @@
+vpc_cidr          = "10.235.0.0/24"
+availability_zone = "us-east-2a"
+aws_profile       = "default"
+aws_region        = "us-east-2"
+environment       = "prod"
+project_name      = "inspection-vpc-project"
