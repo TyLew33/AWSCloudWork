@@ -85,6 +85,14 @@ guide.
 | `vpc/basics/` | AWS CLI (bash) | Scripted, from-scratch VPC creation and teardown (IGW, subnet) outside of any IaC tool. |
 | `iam/` | CloudFormation | An inline IAM policy attached via a CFN template. |
 
+### `inspection-vpc-PROJECT/` design tradeoffs
+
+Single AZ is deliberate, not a shortcut: doubling AZs would double the Network Firewall endpoint
+cost and add a second NAT Gateway, TGW-attachment subnet, and firewall subnet per VPC, for a lab
+whose purpose is validating routing and firewall-policy correctness rather than surviving an AZ
+failure. See its README's own
+[Design tradeoffs](inspection-vpc-PROJECT/README.md#design-tradeoffs) section for the rest.
+
 ## Tooling
 
 Terraform / OpenTofu, AWS SAM, CloudFormation, AWS CLI, Python, Bash, and a
