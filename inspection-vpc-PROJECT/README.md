@@ -156,6 +156,25 @@ indefinitely.
 leaving this running for a month runs ≈ $430+. `00_bootstrap` can be left up; it costs nothing
 meaningful on its own.
 
+## Design tradeoffs
+
+Everything here optimizes for **cheap, disposable, and correct to test** — not production
+readiness. Worth naming explicitly, since none of these are accidents:
+
+- **Single AZ, deliberately.** Every VPC, the NAT Gateway, and the Network Firewall endpoint live
+  in one AZ (`us-east-2a`). A second AZ would double the Network Firewall endpoint cost
+  (`$0.395/hr → $0.79/hr`) and add a second NAT Gateway, TGW-attachment subnet, and firewall
+  subnet — for a lab whose entire purpose is proving the routing and firewall-policy logic work,
+  not surviving an AZ outage. Multi-AZ is the first thing to add (see below) if this ever needs to
+  hold real traffic.
+- **Implicit-allow firewall policy, deliberately.** Two `DROP` rules plus `DEFAULT_ACTION_ORDER`
+  implicit-allow, instead of an allow-list. This keeps the policy legible in one read and keeps the
+  lab focused on demonstrating segmentation, not building out a production rule set.
+- **One subnet per spoke VPC, deliberately.** Prod and Dev each get a single subnet spanning their
+  whole `/24` rather than a dedicated TGW-attachment subnet separate from workload subnets — there's
+  no workload segmentation need at this scale, so the extra subnet would be complexity without a
+  corresponding benefit.
+
 ## Verification
 
 Validated end-to-end against real AWS resources: SSM-managed EC2 instances launched into the Prod
