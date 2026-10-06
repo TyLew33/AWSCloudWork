@@ -26,4 +26,3 @@ jobs:
 
       - name: Confirm we can reach the state bucket
         run: aws s3 ls s3://inspection-vpc-tfstate-bucket/inspection-vpc-project/
-EOF
