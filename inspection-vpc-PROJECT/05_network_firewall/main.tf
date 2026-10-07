@@ -1,3 +1,5 @@
+# CI pipeline test - safe to revert\
+
 data "terraform_remote_state" "inspection_vpc" {
   backend = "s3"
 
