@@ -197,8 +197,9 @@ jobs:
         working-directory: ${{ matrix.stage }}
         run: |
           set -euo pipefail
-          # Plan text travels through a FILE, never inside ${{ }} in a shell
-          # command. Resource names can contain shell metacharacters.
+          # Plan text travels through a FILE, never through a GitHub
+          # expression inside a shell command. Resource names can contain
+          # shell metacharacters.
           {
             printf '### Plan — `%s`\n\n' "$STAGE"
             printf '<details><summary>Show plan</summary>\n\n```terraform\n'
