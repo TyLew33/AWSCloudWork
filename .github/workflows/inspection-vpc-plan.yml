@@ -1,0 +1,208 @@
+###############################################################################
+# `tofu plan` for inspection-vpc-PROJECT.
+#
+# Runs on TWO events, and they behave differently:
+#
+#   pull_request  -> plans what the PR changes, posts the result as a PR
+#                    comment so a reviewer reads it before approving.
+#                    OIDC subject: repo:OWNER/REPO:pull_request
+#
+#   push to main  -> plans what the merge introduced, writes the result to
+#                    the run summary (there is no PR left to comment on).
+#                    This is the plan a later apply consumes.
+#                    OIDC subject: repo:OWNER/REPO:ref:refs/heads/main
+#
+# BOTH subjects must appear in the plan role's trust policy. They do.
+###############################################################################
+name: inspection-vpc plan
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "inspection-vpc-PROJECT/**"
+      - ".github/workflows/inspection-vpc-plan.yml"
+  push:
+    branches: [main]
+    paths:
+      - "inspection-vpc-PROJECT/**"
+      - ".github/workflows/inspection-vpc-plan.yml"
+  workflow_dispatch: # manual re-plan; also runs as refs/heads/main
+
+permissions:
+  contents: read
+
+# One queue per pull request, and a separate one for main.
+# `||` picks the first non-empty value: PR number on PRs, ref otherwise.
+concurrency:
+  group: inspection-vpc-plan-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true # safe: plan changes nothing
+
+env:
+  PROJECT_DIR: inspection-vpc-PROJECT
+  TOFU_VERSION: "1.12.6"
+  AWS_REGION: us-east-2
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Work out which stages to plan. Which two commits to compare depends on
+  # the event, which is the only real complexity in this file.
+  # ---------------------------------------------------------------------
+  changed:
+    name: Find changed stages
+    runs-on: ubuntu-latest
+    outputs:
+      stages: ${{ steps.detect.outputs.stages }}
+      any: ${{ steps.detect.outputs.any }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # full history: we diff between two commits
+
+      - id: detect
+        name: Diff the right two commits
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          case "$EVENT" in
+            pull_request)
+              FROM="$PR_BASE"; TO="$PR_HEAD"
+              ;;
+            push)
+              FROM="$PUSH_BEFORE"; TO="$PUSH_AFTER"
+              # github.event.before is all zeroes on a brand-new branch or a
+              # force push with no ancestor. Fall back to the previous commit.
+              if [ -z "$FROM" ] || [ "$FROM" = "0000000000000000000000000000000000000000" ]; then
+                FROM="${TO}^"
+              fi
+              # If even that does not exist (very first commit in the repo),
+              # give up on diffing and plan everything.
+              git rev-parse --verify --quiet "$FROM" >/dev/null || FROM=""
+              ;;
+            *)
+              # workflow_dispatch: nothing to diff, so plan every stage.
+              FROM=""; TO=""
+              ;;
+          esac
+
+          if [ -n "$FROM" ]; then
+            candidates=$(git diff --name-only "$FROM" "$TO" \
+                           | grep -E "^${PROJECT_DIR}/[^/]+/.*\.tf$" \
+                           | xargs -r -n1 dirname || true)
+          else
+            candidates=$(find "$PROJECT_DIR" -mindepth 1 -maxdepth 1 -type d || true)
+          fi
+
+          # 00_bootstrap is EXCLUDED on purpose: it keeps state locally, so a
+          # plan in CI would find no state and propose recreating the state
+          # bucket and lock table. That is a property of bootstrap stages.
+          stages=$(printf '%s\n' "$candidates" \
+                     | sort -u \
+                     | grep -v '^$' \
+                     | grep -v "/00_bootstrap$" \
+                     | jq -R -s -c 'split("\n") | map(select(length > 0))' || echo '[]')
+
+          echo "stages=$stages" >> "$GITHUB_OUTPUT"
+          if [ "$stages" = "[]" ]; then
+            echo "any=false" >> "$GITHUB_OUTPUT"
+            echo "Nothing to plan."
+          else
+            echo "any=true" >> "$GITHUB_OUTPUT"
+            echo "Planning:"; echo "$stages" | jq -r '.[]'
+          fi
+
+  plan:
+    name: plan ${{ matrix.stage }}
+    needs: changed
+    if: needs.changed.outputs.any == 'true'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write      # mint the OIDC token
+      pull-requests: write # post the plan as a PR comment (PR events only)
+
+    strategy:
+      fail-fast: false
+      matrix:
+        stage: ${{ fromJSON(needs.changed.outputs.stages) }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      # Writes short-lived credentials into environment variables.
+      # OpenTofu picks them up automatically. They expire in about an hour.
+      - name: Assume the plan role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_INSPECTION_PLAN_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-plan-${{ github.run_id }}
+
+      - name: tofu init
+        working-directory: ${{ matrix.stage }}
+        run: tofu init -input=false
+
+      - name: tofu plan
+        working-directory: ${{ matrix.stage }}
+        run: |
+          set -euo pipefail
+          # -lock-timeout waits for the DynamoDB lock instead of failing at once.
+          tofu plan -input=false -lock-timeout=5m -out=tfplan
+          tofu show -no-color tfplan > plan.txt
+
+      # The binary plan is what a future apply consumes, so the thing applied
+      # is exactly the thing that was reviewed.
+      - name: Upload the plan
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tfplan-${{ strategy.job-index }}
+          path: |
+            ${{ matrix.stage }}/tfplan
+            ${{ matrix.stage }}/plan.txt
+          retention-days: 14
+
+      # Readable on every event type. Appears under the run in the Actions tab.
+      - name: Write the plan to the run summary
+        if: always()
+        env:
+          STAGE: ${{ matrix.stage }}
+        working-directory: ${{ matrix.stage }}
+        run: |
+          set -euo pipefail
+          {
+            printf '### Plan — `%s`\n\n' "$STAGE"
+            printf '```terraform\n'
+            head -c 60000 plan.txt 2>/dev/null || echo "(no plan produced)"
+            printf '\n```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Only pull requests have somewhere to comment.
+      - name: Comment the plan on the PR
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          STAGE: ${{ matrix.stage }}
+        working-directory: ${{ matrix.stage }}
+        run: |
+          set -euo pipefail
+          # Plan text travels through a FILE, never inside ${{ }} in a shell
+          # command. Resource names can contain shell metacharacters.
+          {
+            printf '### Plan — `%s`\n\n' "$STAGE"
+            printf '<details><summary>Show plan</summary>\n\n```terraform\n'
+            head -c 60000 plan.txt
+            printf '\n```\n</details>\n'
+          } > comment.md
+          gh pr comment "$PR_NUMBER" --body-file comment.md

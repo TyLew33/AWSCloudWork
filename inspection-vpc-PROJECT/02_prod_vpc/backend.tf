@@ -14,6 +14,5 @@ terraform {
     region         = "us-east-2"
     dynamodb_table = "inspection-vpc-tfstate-lock"
     encrypt        = true
-    profile        = "default"
   }
 }

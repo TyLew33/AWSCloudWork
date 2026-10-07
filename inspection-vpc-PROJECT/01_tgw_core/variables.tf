@@ -7,7 +7,7 @@ variable "tgw_asn" {
 variable "aws_profile" {
   description = "Named AWS CLI profile used to authenticate"
   type        = string
-  default     = "default"
+  default     = null
 }
 
 variable "aws_region" {

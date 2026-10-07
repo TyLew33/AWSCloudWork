@@ -14,7 +14,7 @@ variable "state_region" {
 variable "state_profile" {
   description = "AWS CLI profile used to read remote state"
   type        = string
-  default     = "default"
+  default     = null
 }
 
 variable "state_key_prefix" {
@@ -26,7 +26,7 @@ variable "state_key_prefix" {
 variable "aws_profile" {
   description = "Named AWS CLI profile used to authenticate"
   type        = string
-  default     = "default"
+  default     = null
 }
 
 variable "aws_region" {
