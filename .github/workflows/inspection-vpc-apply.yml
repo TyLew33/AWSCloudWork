@@ -1,0 +1,148 @@
+###############################################################################
+# `tofu apply` for inspection-vpc-PROJECT.
+#
+# Triggered manually, never automatically. You choose the stage, and the job
+# halts for human approval before its first step runs.
+#
+# Two independent controls guard this, and both must be satisfied:
+#
+#   1. GitHub: `environment: inspection-vpc` has a required reviewer, so the
+#      job is held in a pending state until someone clicks Approve.
+#   2. AWS:    the apply role's trust policy names ONLY the subject
+#              <prefix>:environment:inspection-vpc
+#
+# Deleting the `environment:` line to skip the gate does not work. It changes
+# the OIDC subject, and AWS then refuses to issue credentials at all.
+###############################################################################
+name: inspection-vpc apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Stage to apply"
+        required: true
+        type: choice
+        options:
+          - 01_tgw_core
+          - 02_prod_vpc
+          - 03_dev_vpc
+          - 04_inspection_vpc
+          - 05_network_firewall
+          - 06_tgw_attachments
+          - 07_post_attachment_routing
+      confirm:
+        description: 'Type APPLY to confirm'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Applies must QUEUE, never cancel. Killing OpenTofu mid-apply leaves a stale
+# state lock and resources AWS created that your state has never heard of.
+concurrency:
+  group: inspection-vpc-apply-${{ inputs.stage }}
+  cancel-in-progress: false
+
+env:
+  PROJECT_DIR: inspection-vpc-PROJECT
+  TOFU_VERSION: "1.12.6"
+  AWS_REGION: us-east-2
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Cheap typo guard. Runs with no credentials and no environment, so it
+  # fails instantly rather than waking a reviewer for a mistyped run.
+  # ---------------------------------------------------------------------
+  guard:
+    name: Confirm intent
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the confirmation string
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          if [ "$CONFIRM" != "APPLY" ]; then
+            echo "Confirmation text was not APPLY. Refusing to continue."
+            exit 1
+          fi
+          echo "Confirmed."
+
+  apply:
+    name: apply ${{ inputs.stage }}
+    needs: guard
+    runs-on: ubuntu-latest
+
+    # THE GATE. The runner is not even allocated, and the environment's
+    # secrets are not injected, until a reviewer approves.
+    environment: inspection-vpc
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      # Only reachable because this job declares `environment:` above.
+      - name: Assume the apply role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_INSPECTION_APPLY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-apply-${{ github.run_id }}
+
+      - name: Record who is applying what
+        run: |
+          echo "Stage:    ${{ inputs.stage }}"
+          echo "Actor:    ${{ github.actor }}"
+          echo "Commit:   ${{ github.sha }}"
+          aws sts get-caller-identity
+
+      - name: tofu init
+        working-directory: ${{ env.PROJECT_DIR }}/${{ inputs.stage }}
+        run: tofu init -input=false
+
+      # Plan again here rather than reusing the PR artifact. Reason: a plan
+      # file is only valid against the state it was generated from, and state
+      # may have moved since. The reviewer approves at the gate ABOVE, then
+      # reads this plan in the summary before the apply proceeds.
+      - name: tofu plan
+        working-directory: ${{ env.PROJECT_DIR }}/${{ inputs.stage }}
+        run: |
+          set -euo pipefail
+          tofu plan -input=false -lock-timeout=5m -out=tfplan
+          tofu show -no-color tfplan > plan.txt
+
+      - name: Show the plan in the run summary
+        working-directory: ${{ env.PROJECT_DIR }}/${{ inputs.stage }}
+        run: |
+          set -euo pipefail
+          {
+            printf '### Applying — `%s`\n\n' "${{ inputs.stage }}"
+            printf '```terraform\n'
+            head -c 60000 plan.txt
+            printf '\n```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: tofu apply
+        working-directory: ${{ env.PROJECT_DIR }}/${{ inputs.stage }}
+        run: tofu apply -input=false -lock-timeout=5m -auto-approve tfplan
+
+      # Keep the applied plan. When something looks wrong next week, this is
+      # the record of exactly what changed and when.
+      - name: Archive the applied plan
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: applied-${{ inputs.stage }}-${{ github.run_id }}
+          path: |
+            ${{ env.PROJECT_DIR }}/${{ inputs.stage }}/tfplan
+            ${{ env.PROJECT_DIR }}/${{ inputs.stage }}/plan.txt
+          retention-days: 90
