@@ -1,0 +1,164 @@
+###############################################################################
+# `tofu destroy` for inspection-vpc-PROJECT.
+#
+# The most dangerous operation in the project, so it is the most guarded:
+#
+#   1. Manual trigger only. Never fires on a push, merge, or schedule.
+#   2. The confirmation text must be the EXACT stage name, not a generic
+#      word. You cannot destroy 05 by muscle-memory-typing what you typed
+#      for 04.
+#   3. The same environment gate as apply: a human must approve, and AWS
+#      refuses credentials to any job that skipped it.
+#   4. The destroy plan is printed to the run summary BEFORE anything is
+#      removed, and archived for a year afterwards.
+#
+# DEPENDENCY ORDER MATTERS. These stages must be destroyed in REVERSE of
+# the order they were created:
+#
+#   07 -> 06 -> 05 -> 04 -> 03 -> 02 -> 01
+#
+# Destroying 04 (inspection VPC) while 05 (firewall) still exists will fail
+# or orphan resources, because 05 reads 04's outputs and holds subnets
+# inside 04's VPC. Work downward, one stage at a time.
+#
+# 00_bootstrap is intentionally absent. It holds the state bucket and lock
+# table that every other stage depends on. Destroying it from CI would
+# delete the state files mid-operation. If you ever truly need to remove
+# it, do that by hand, last, once everything else is gone.
+###############################################################################
+name: inspection-vpc destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Stage to DESTROY (work in reverse order: 07 first, 01 last)"
+        required: true
+        type: choice
+        options:
+          - 07_post_attachment_routing
+          - 06_tgw_attachments
+          - 05_network_firewall
+          - 04_inspection_vpc
+          - 03_dev_vpc
+          - 02_prod_vpc
+          - 01_tgw_core
+      confirm:
+        description: "Type the EXACT stage name to confirm (e.g. 05_network_firewall)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Never cancel a destroy in progress. An interrupted destroy leaves a stale
+# state lock plus resources AWS has removed that your state still lists.
+concurrency:
+  group: inspection-vpc-destroy-${{ inputs.stage }}
+  cancel-in-progress: false
+
+env:
+  PROJECT_DIR: inspection-vpc-PROJECT
+  TOFU_VERSION: "1.12.6"
+  AWS_REGION: us-east-2
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Runs with no credentials and no environment, so a mistyped request
+  # fails in seconds instead of paging a reviewer.
+  # ---------------------------------------------------------------------
+  guard:
+    name: Confirm intent
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirmation must match the selected stage exactly
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          STAGE: ${{ inputs.stage }}
+        run: |
+          set -euo pipefail
+          if [ "$CONFIRM" != "$STAGE" ]; then
+            echo "Confirmation did not match the selected stage."
+            echo "  selected: $STAGE"
+            echo "  typed:    $CONFIRM"
+            echo "Refusing to continue."
+            exit 1
+          fi
+          echo "Confirmed destroy of $STAGE."
+
+  destroy:
+    name: DESTROY ${{ inputs.stage }}
+    needs: guard
+    runs-on: ubuntu-latest
+
+    # THE GATE. The runner is not allocated until a reviewer approves, and
+    # this line is also what sets the OIDC subject the apply role trusts.
+    environment: inspection-vpc
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Assume the apply role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_INSPECTION_APPLY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-destroy-${{ github.run_id }}
+
+      - name: Record who is destroying what
+        run: |
+          echo "Stage:  ${{ inputs.stage }}"
+          echo "Actor:  ${{ github.actor }}"
+          echo "Commit: ${{ github.sha }}"
+          aws sts get-caller-identity
+
+      - name: tofu init
+        working-directory: ${{ env.PROJECT_DIR }}/${{ inputs.stage }}
+        run: tofu init -input=false
+
+      # Generate the destroy plan as a FILE, then apply that exact file.
+      # Planning and destroying as one step would remove resources before
+      # anyone could read what was about to go.
+      - name: tofu plan -destroy
+        working-directory: ${{ env.PROJECT_DIR }}/${{ inputs.stage }}
+        run: |
+          set -euo pipefail
+          tofu plan -destroy -input=false -lock-timeout=5m -out=tfplan
+          tofu show -no-color tfplan > plan.txt
+          echo "Resources queued for destruction:"
+          grep -c "will be destroyed" plan.txt || echo "0"
+
+      - name: Show what is about to be destroyed
+        working-directory: ${{ env.PROJECT_DIR }}/${{ inputs.stage }}
+        run: |
+          set -euo pipefail
+          {
+            printf '### DESTROY — `%s`\n\n' "${{ inputs.stage }}"
+            printf '```terraform\n'
+            head -c 60000 plan.txt
+            printf '\n```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: tofu destroy
+        working-directory: ${{ env.PROJECT_DIR }}/${{ inputs.stage }}
+        run: tofu apply -input=false -lock-timeout=5m -auto-approve tfplan
+
+      # Kept for a year. When someone asks in March what happened to the
+      # firewall, this is the answer.
+      - name: Archive the destroy plan
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: destroyed-${{ inputs.stage }}-${{ github.run_id }}
+          path: |
+            ${{ env.PROJECT_DIR }}/${{ inputs.stage }}/tfplan
+            ${{ env.PROJECT_DIR }}/${{ inputs.stage }}/plan.txt
+          retention-days: 365

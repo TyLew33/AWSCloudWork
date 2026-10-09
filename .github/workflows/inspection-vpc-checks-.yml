@@ -1,0 +1,192 @@
+###############################################################################
+# CI checks for inspection-vpc-PROJECT only.
+#
+# Everything here is read-only and needs NO AWS credentials. It checks syntax,
+# formatting, linting and security posture. It never talks to your account.
+###############################################################################
+name: inspection-vpc checks
+
+on:
+  push:
+    branches: [main]
+    # Only run when THIS project changes. A push touching the tgw-dxgw project
+    # or a README will not trigger these checks.
+    paths:
+      - "inspection-vpc-PROJECT/**"
+      - ".github/workflows/inspection-vpc-checks.yml"
+      - ".tflint.hcl"
+  # NO paths: filter here, on purpose.
+  #
+  # These jobs are required status checks on main. A required check that
+  # never runs blocks the merge forever -- GitHub shows "Expected: waiting
+  # for status" with no way forward. A path filter would do exactly that
+  # on any PR that touches only a README or a workflow file.
+  #
+  # Cost of running them on every PR: about a minute, and no AWS
+  # credentials are involved. Cheap insurance.
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege for the auto-issued GITHUB_TOKEN.
+permissions:
+  contents: read
+
+# Read-only checks, so cancelling a superseded run is safe.
+concurrency:
+  group: inspection-vpc-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+# NOTE: TF_PLUGIN_CACHE_DIR is deliberately NOT here.
+# A workflow-level env var applies to every job, including ones that never
+# create the directory it points at -- which makes OpenTofu print
+# "plugin cache dir cannot be opened" in fmt and tflint. Scope a variable
+# to the job that actually uses it.
+env:
+  PROJECT_DIR: inspection-vpc-PROJECT
+  TOFU_VERSION: "1.12.6"
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Fastest check first. Fails in ~20 seconds on a stray space.
+  # Fix locally with: tofu fmt -recursive inspection-vpc-PROJECT
+  # ---------------------------------------------------------------------
+  fmt:
+    name: tofu fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Check formatting
+        run: tofu fmt -check -recursive "$PROJECT_DIR"
+
+  # ---------------------------------------------------------------------
+  # Build the stage list at runtime. Add 09_something tomorrow and it is
+  # validated automatically, with no edit to this file.
+  # ---------------------------------------------------------------------
+  discover:
+    name: Discover stages
+    runs-on: ubuntu-latest
+    outputs:
+      stages: ${{ steps.find.outputs.stages }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - id: find
+        name: List stage directories
+        run: |
+          set -euo pipefail
+          # Every immediate subdirectory of the project that contains .tf files.
+          # This project has no shared child modules, so nothing is excluded.
+          stages=$(find "$PROJECT_DIR" -mindepth 1 -maxdepth 1 -type d \
+                     -exec sh -c 'ls "$1"/*.tf >/dev/null 2>&1' _ {} \; -print \
+                   | sort \
+                   | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "stages=$stages" >> "$GITHUB_OUTPUT"
+          echo "Stages found:"; echo "$stages" | jq -r '.[]'
+
+  # ---------------------------------------------------------------------
+  # One machine per stage, all at once.
+  #
+  # -backend=false means "check the code, do not connect to S3". That is why
+  # this job needs no AWS credentials, and why it works for 00_bootstrap
+  # (which has no backend block at all).
+  #
+  # NOTE: the job name is dynamic, so these jobs must NOT be used as
+  # required status checks -- see the pull_request comment above.
+  # ---------------------------------------------------------------------
+  validate:
+    name: validate ${{ matrix.stage }}
+    needs: discover
+    runs-on: ubuntu-latest
+
+    # Scoped to this job: it is the only one that downloads providers.
+    env:
+      TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tofu-plugin-cache
+
+    strategy:
+      fail-fast: false # show every broken stage, not just the first
+      matrix:
+        stage: ${{ fromJSON(needs.discover.outputs.stages) }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Prepare provider cache directory
+        run: mkdir -p "$TF_PLUGIN_CACHE_DIR"
+
+      - name: Restore provider cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
+          key: tofu-plugins-${{ runner.os }}-${{ hashFiles('inspection-vpc-PROJECT/**/.terraform.lock.hcl') }}
+          restore-keys: |
+            tofu-plugins-${{ runner.os }}-
+
+      - name: init and validate
+        working-directory: ${{ matrix.stage }}
+        run: |
+          set -euo pipefail
+          tofu init -backend=false -input=false
+          tofu validate
+
+  # ---------------------------------------------------------------------
+  # tflint. The AWS ruleset lives in .tflint.hcl at the repo root; without
+  # it, tflint checks no AWS-specific rules whatsoever.
+  # ---------------------------------------------------------------------
+  tflint:
+    name: tflint
+    runs-on: ubuntu-latest
+    env:
+      # --recursive changes the working directory as it walks, so the config
+      # must be an absolute path or tflint will not find it.
+      TFLINT_CONFIG_FILE: ${{ github.workspace }}/.tflint.hcl
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: terraform-linters/setup-tflint@1cf010d3c7aef302051ccdb68c14c5dc2efa34ef # v6.3.1
+        with:
+          tflint_version: latest
+
+      - name: Cache tflint plugins
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.tflint.d/plugins
+          key: tflint-${{ runner.os }}-${{ hashFiles('.tflint.hcl') }}
+          restore-keys: |
+            tflint-${{ runner.os }}-
+
+      - name: Download rulesets
+        run: tflint --init
+
+      - name: Run tflint
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: tflint --recursive --format compact
+
+  # ---------------------------------------------------------------------
+  # Checkov, pinned to an immutable commit. Never @master.
+  # continue-on-error is TEMPORARY: see the rollout notes.
+  # ---------------------------------------------------------------------
+  checkov:
+    name: checkov
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run checkov
+        uses: bridgecrewio/checkov-action@444c9db6fa75e2d9c19ebf1fde7322089be9009e # v12.3125.0
+        continue-on-error: true # TEMPORARY - remove once findings are triaged
+        with:
+          directory: inspection-vpc-PROJECT
+          framework: terraform
+          quiet: true
+          output_format: cli
+          soft_fail_on: LOW,MEDIUM
