@@ -205,10 +205,10 @@ data "aws_iam_policy_document" "apply_infra" {
     sid    = "NetworkingAndFirewall"
     effect = "Allow"
     actions = [
-      "ec2:*",             # VPCs, subnets, routes, NAT, IGW, TGW, ENIs
-      "network-firewall:*",# firewall, policy, rule groups, logging config
-      "logs:*",            # firewall flow/alert log destinations
-      "ram:*",             # resource shares, if you add cross-account later
+      "ec2:*",              # VPCs, subnets, routes, NAT, IGW, TGW, ENIs
+      "network-firewall:*", # firewall, policy, rule groups, logging config
+      "logs:*",             # firewall flow/alert log destinations
+      "ram:*",              # resource shares, if you add cross-account later
       "elasticloadbalancing:Describe*",
     ]
     resources = ["*"]

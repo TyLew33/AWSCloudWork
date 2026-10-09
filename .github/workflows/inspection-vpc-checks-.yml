@@ -9,7 +9,7 @@ name: inspection-vpc checks
 on:
   push:
     branches: [main]
-    # Only run when THIS project changes. A PR touching the tgw-dxgw project
+    # Only run when THIS project changes. A push touching the tgw-dxgw project
     # or a README will not trigger these checks.
     paths:
       - "inspection-vpc-PROJECT/**"
@@ -37,14 +37,19 @@ concurrency:
   group: inspection-vpc-checks-${{ github.ref }}
   cancel-in-progress: true
 
+# NOTE: TF_PLUGIN_CACHE_DIR is deliberately NOT here.
+# A workflow-level env var applies to every job, including ones that never
+# create the directory it points at -- which makes OpenTofu print
+# "plugin cache dir cannot be opened" in fmt and tflint. Scope a variable
+# to the job that actually uses it.
 env:
   PROJECT_DIR: inspection-vpc-PROJECT
   TOFU_VERSION: "1.12.6"
-  TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tofu-plugin-cache
 
 jobs:
   # ---------------------------------------------------------------------
   # Fastest check first. Fails in ~20 seconds on a stray space.
+  # Fix locally with: tofu fmt -recursive inspection-vpc-PROJECT
   # ---------------------------------------------------------------------
   fmt:
     name: tofu fmt
@@ -60,7 +65,7 @@ jobs:
         run: tofu fmt -check -recursive "$PROJECT_DIR"
 
   # ---------------------------------------------------------------------
-  # Build the stage list at runtime. Add 08_something tomorrow and it is
+  # Build the stage list at runtime. Add 09_something tomorrow and it is
   # validated automatically, with no edit to this file.
   # ---------------------------------------------------------------------
   discover:
@@ -98,10 +103,16 @@ jobs:
     name: validate ${{ matrix.stage }}
     needs: discover
     runs-on: ubuntu-latest
+
+    # Scoped to this job: it is the only one that downloads providers.
+    env:
+      TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tofu-plugin-cache
+
     strategy:
       fail-fast: false # show every broken stage, not just the first
       matrix:
         stage: ${{ fromJSON(needs.discover.outputs.stages) }}
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
