@@ -1,30 +1,38 @@
 ###############################################################################
 # `tofu destroy` for inspection-vpc-PROJECT.
 #
-# The most dangerous operation in the project, so it is the most guarded:
+# Three jobs, and the ORDER is the whole point:
 #
-#   1. Manual trigger only. Never fires on a push, merge, or schedule.
-#   2. The confirmation text must be the EXACT stage name, not a generic
-#      word. You cannot destroy 05 by muscle-memory-typing what you typed
-#      for 04.
-#   3. The same environment gate as apply: a human must approve, and AWS
-#      refuses credentials to any job that skipped it.
-#   4. The destroy plan is printed to the run summary BEFORE anything is
-#      removed, and archived for a year afterwards.
+#   guard    -> confirmation text must equal the stage name exactly.
+#               No credentials, no environment. A typo dies in 3 seconds.
 #
-# DEPENDENCY ORDER MATTERS. These stages must be destroyed in REVERSE of
-# the order they were created:
+#   preview  -> assumes the READ-ONLY plan role and generates the destroy
+#               plan BEFORE anyone is asked to approve. Writes the full list
+#               of doomed resources to the run summary and uploads the plan
+#               file as an artifact.
+#
+#               This job has NO environment, so it needs no approval -- it
+#               cannot change anything. That is exactly why the plan and
+#               apply roles were split in the first place.
+#
+#   destroy  -> gated on `environment: inspection-vpc`. Downloads the EXACT
+#               plan file the preview produced and applies that. Not a fresh
+#               plan: you approve a specific list of resources, and that list
+#               is what executes.
+#
+#               If state moved between preview and approval, OpenTofu rejects
+#               the stale plan rather than quietly destroying something else.
+#
+# DEPENDENCY ORDER. Destroy in REVERSE of creation:
 #
 #   07 -> 06 -> 05 -> 04 -> 03 -> 02 -> 01
 #
-# Destroying 04 (inspection VPC) while 05 (firewall) still exists will fail
-# or orphan resources, because 05 reads 04's outputs and holds subnets
-# inside 04's VPC. Work downward, one stage at a time.
+# Stage 05 holds a firewall endpoint inside stage 04's VPC, and 05/06/07 read
+# earlier stages' outputs. Destroying 04 before 05 fails or orphans resources.
 #
-# 00_bootstrap is intentionally absent. It holds the state bucket and lock
-# table that every other stage depends on. Destroying it from CI would
-# delete the state files mid-operation. If you ever truly need to remove
-# it, do that by hand, last, once everything else is gone.
+# 00_bootstrap is deliberately absent. It owns the state bucket and lock
+# table every other stage reads. Destroying it from CI would delete the state
+# files mid-operation. If it ever truly must go, do it by hand, last.
 ###############################################################################
 name: inspection-vpc destroy
 
@@ -32,7 +40,7 @@ on:
   workflow_dispatch:
     inputs:
       stage:
-        description: "Stage to DESTROY (work in reverse order: 07 first, 01 last)"
+        description: "Stage to DESTROY (reverse order: 07 first, 01 last)"
         required: true
         type: choice
         options:
@@ -51,8 +59,8 @@ on:
 permissions:
   contents: read
 
-# Never cancel a destroy in progress. An interrupted destroy leaves a stale
-# state lock plus resources AWS has removed that your state still lists.
+# Never cancel a destroy in flight. An interrupted destroy leaves a stale
+# state lock plus resources AWS removed that your state still lists.
 concurrency:
   group: inspection-vpc-destroy-${{ inputs.stage }}
   cancel-in-progress: false
@@ -64,8 +72,8 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------
-  # Runs with no credentials and no environment, so a mistyped request
-  # fails in seconds instead of paging a reviewer.
+  # Typo guard. Generic words like "DESTROY" let muscle memory carry you
+  # through a mis-clicked dropdown; the stage name does not.
   # ---------------------------------------------------------------------
   guard:
     name: Confirm intent
@@ -81,18 +89,100 @@ jobs:
             echo "Confirmation did not match the selected stage."
             echo "  selected: $STAGE"
             echo "  typed:    $CONFIRM"
-            echo "Refusing to continue."
             exit 1
           fi
           echo "Confirmed destroy of $STAGE."
 
-  destroy:
-    name: DESTROY ${{ inputs.stage }}
+  # ---------------------------------------------------------------------
+  # Generate the destroy plan BEFORE the approval gate, using the
+  # READ-ONLY plan role. No `environment:` here on purpose -- this job
+  # cannot change anything, so gating it would only hide the information
+  # the approver needs.
+  # ---------------------------------------------------------------------
+  preview:
+    name: Preview what will be destroyed
     needs: guard
     runs-on: ubuntu-latest
 
-    # THE GATE. The runner is not allocated until a reviewer approves, and
-    # this line is also what sets the OIDC subject the apply role trusts.
+    permissions:
+      contents: read
+      id-token: write
+
+    outputs:
+      resource_count: ${{ steps.plan.outputs.resource_count }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      # PLAN role: read-only. Subject is ref:refs/heads/main, which the
+      # plan role trusts. The apply role would refuse this job.
+      - name: Assume the read-only plan role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_INSPECTION_PLAN_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-destroy-preview-${{ github.run_id }}
+
+      - name: tofu init
+        working-directory: ${{ env.PROJECT_DIR }}/${{ inputs.stage }}
+        run: tofu init -input=false
+
+      - id: plan
+        name: tofu plan -destroy
+        working-directory: ${{ env.PROJECT_DIR }}/${{ inputs.stage }}
+        run: |
+          set -euo pipefail
+          tofu plan -destroy -input=false -lock-timeout=5m -out=tfplan
+          tofu show -no-color tfplan > plan.txt
+
+          count=$(grep -c "will be destroyed" plan.txt || true)
+          echo "resource_count=${count:-0}" >> "$GITHUB_OUTPUT"
+          echo "Resources queued for destruction: ${count:-0}"
+
+      - name: Write the destroy plan to the run summary
+        working-directory: ${{ env.PROJECT_DIR }}/${{ inputs.stage }}
+        env:
+          STAGE: ${{ inputs.stage }}
+          COUNT: ${{ steps.plan.outputs.resource_count }}
+        run: |
+          set -euo pipefail
+          {
+            printf '## DESTROY PREVIEW — `%s`\n\n' "$STAGE"
+            printf '**%s resource(s) will be destroyed.**\n\n' "$COUNT"
+            printf 'Read this before approving the deployment below.\n\n'
+            printf '### Resources to be destroyed\n\n```\n'
+            grep "will be destroyed" plan.txt || echo "(none)"
+            printf '```\n\n'
+            printf '<details><summary>Full destroy plan</summary>\n\n```terraform\n'
+            head -c 55000 plan.txt
+            printf '\n```\n</details>\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # This exact file is what the destroy job will apply. Approving means
+      # approving THIS plan, not a re-plan done later.
+      - name: Upload the destroy plan
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: destroy-plan-${{ inputs.stage }}-${{ github.run_id }}
+          path: |
+            ${{ env.PROJECT_DIR }}/${{ inputs.stage }}/tfplan
+            ${{ env.PROJECT_DIR }}/${{ inputs.stage }}/plan.txt
+          retention-days: 365
+          include-hidden-files: false
+
+  # ---------------------------------------------------------------------
+  # THE GATE. By the time this job is queued, the summary above already
+  # lists every resource that will be removed.
+  # ---------------------------------------------------------------------
+  destroy:
+    name: DESTROY ${{ inputs.stage }} (${{ needs.preview.outputs.resource_count }} resources)
+    needs: [guard, preview]
+    runs-on: ubuntu-latest
+
     environment: inspection-vpc
 
     permissions:
@@ -106,6 +196,9 @@ jobs:
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
 
+      # APPLY role. Only reachable because this job declares `environment:`.
+      # Remove that line to skip approval and the OIDC subject changes, so
+      # AWS refuses credentials entirely.
       - name: Assume the apply role
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
@@ -114,51 +207,40 @@ jobs:
           role-session-name: gha-destroy-${{ github.run_id }}
 
       - name: Record who is destroying what
+        env:
+          STAGE: ${{ inputs.stage }}
+          COUNT: ${{ needs.preview.outputs.resource_count }}
         run: |
-          echo "Stage:  ${{ inputs.stage }}"
-          echo "Actor:  ${{ github.actor }}"
-          echo "Commit: ${{ github.sha }}"
+          echo "Stage:     $STAGE"
+          echo "Resources: $COUNT"
+          echo "Actor:     ${{ github.actor }}"
+          echo "Approver:  see the Deployments tab for this run"
           aws sts get-caller-identity
+
+      # Retrieve the EXACT plan the approver read.
+      - name: Download the approved destroy plan
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: destroy-plan-${{ inputs.stage }}-${{ github.run_id }}
+          path: ${{ env.PROJECT_DIR }}/${{ inputs.stage }}
 
       - name: tofu init
         working-directory: ${{ env.PROJECT_DIR }}/${{ inputs.stage }}
         run: tofu init -input=false
 
-      # Generate the destroy plan as a FILE, then apply that exact file.
-      # Planning and destroying as one step would remove resources before
-      # anyone could read what was about to go.
-      - name: tofu plan -destroy
-        working-directory: ${{ env.PROJECT_DIR }}/${{ inputs.stage }}
-        run: |
-          set -euo pipefail
-          tofu plan -destroy -input=false -lock-timeout=5m -out=tfplan
-          tofu show -no-color tfplan > plan.txt
-          echo "Resources queued for destruction:"
-          grep -c "will be destroyed" plan.txt || echo "0"
-
-      - name: Show what is about to be destroyed
-        working-directory: ${{ env.PROJECT_DIR }}/${{ inputs.stage }}
-        run: |
-          set -euo pipefail
-          {
-            printf '### DESTROY — `%s`\n\n' "${{ inputs.stage }}"
-            printf '```terraform\n'
-            head -c 60000 plan.txt
-            printf '\n```\n'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: tofu destroy
+      # Applying a saved plan file. If state moved since the preview,
+      # OpenTofu refuses it as stale rather than destroying something the
+      # approver never saw. Re-run the workflow in that case.
+      - name: tofu destroy (applying the approved plan)
         working-directory: ${{ env.PROJECT_DIR }}/${{ inputs.stage }}
         run: tofu apply -input=false -lock-timeout=5m -auto-approve tfplan
 
-      # Kept for a year. When someone asks in March what happened to the
-      # firewall, this is the answer.
-      - name: Archive the destroy plan
+      - name: Record the outcome
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: destroyed-${{ inputs.stage }}-${{ github.run_id }}
-          path: |
-            ${{ env.PROJECT_DIR }}/${{ inputs.stage }}/tfplan
-            ${{ env.PROJECT_DIR }}/${{ inputs.stage }}/plan.txt
-          retention-days: 365
+        env:
+          STAGE: ${{ inputs.stage }}
+        run: |
+          {
+            printf '\n### Destroy completed — `%s`\n\n' "$STAGE"
+            printf 'Applied the plan previewed above.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
