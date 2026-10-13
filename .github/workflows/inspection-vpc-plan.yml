@@ -102,11 +102,11 @@ jobs:
           # 00_bootstrap is EXCLUDED on purpose: it keeps state locally, so a
           # plan in CI would find no state and propose recreating the state
           # bucket and lock table. That is a property of bootstrap stages.
-          stages=$(printf '%s\n' "$candidates" \
-                     | sort -u \
-                     | grep -v '^$' \
-                     | grep -v "/00_bootstrap$" \
-                     | jq -R -s -c 'split("\n") | map(select(length > 0))' || echo '[]')
+          stages=$(printf '%s\n' "$candidates" | jq -R -s -c '
+            split("\n")
+            | map(select(length > 0 and (endswith("/00_bootstrap") | not)))
+            | unique
+          ')
 
           echo "stages=$stages" >> "$GITHUB_OUTPUT"
           if [ "$stages" = "[]" ]; then

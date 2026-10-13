@@ -93,10 +93,99 @@ whose purpose is validating routing and firewall-policy correctness rather than 
 failure. See its README's own
 [Design tradeoffs](inspection-vpc-PROJECT/README.md#design-tradeoffs) section for the rest.
 
+## CI/CD
+
+`inspection-vpc-PROJECT/` is deployed through GitHub Actions using **OpenID
+Connect federation to AWS — no long-lived access keys are stored anywhere in
+this repository.** Each workflow run exchanges a short-lived, GitHub-signed
+identity token for AWS credentials that expire in roughly an hour.
+
+The IAM trust and role definitions that make this work live in
+[`inspection-vpc-PROJECT/08_github_oidc/`](inspection-vpc-PROJECT/08_github_oidc/)
+and are applied once, manually, as a bootstrap step — the module that grants
+the pipeline its access cannot itself be applied by the pipeline.
+
+### Two roles, split by blast radius
+
+| Role | Access | Trusted OIDC subjects |
+|---|---|---|
+| `gha-inspection-vpc-plan` | Read-only, plus state read and lock | `:pull_request`, `:ref:refs/heads/main` |
+| `gha-inspection-vpc-apply` | Write (`ec2`, `network-firewall`, `logs`, `ram`) plus state write | `:environment:inspection-vpc` **only** |
+
+The split is what makes a safe, ungated plan possible: anything read-only can
+run freely on a pull request, while anything that mutates infrastructure is
+reachable only through the approval gate.
+
+### Workflows
+
+| Workflow | Fires on | AWS access | Gated |
+|---|---|---|---|
+| `inspection-vpc-checks.yml` | PR, push to `main`, manual | none | no |
+| `inspection-vpc-plan.yml` | PR, push to `main`, manual | read-only | no |
+| `inspection-vpc-apply.yml` | manual only | write | yes |
+| `inspection-vpc-destroy.yml` | manual only | write | yes |
+
+**checks** — `tofu fmt`, `tofu validate` across all stages in parallel,
+`tflint` with the AWS ruleset (`.tflint.hcl`), and `checkov`. Runs
+`init -backend=false`, so it needs no AWS credentials at all. These are the
+required status checks on `main`.
+
+**plan** — assumes the plan role, runs `tofu plan` against live state, and
+posts the result as a pull-request comment (or to the run summary on a merge).
+Only the stages a change actually touches are planned, determined by diffing
+the relevant commits. Informational rather than blocking: a plan can fail for
+reasons unrelated to the change under review, such as an unapplied upstream
+stage.
+
+**apply** — manual, one stage at a time, with the stage order left to the
+operator because the stages have a strict dependency chain. Requires typing
+`APPLY` to confirm, then halts on the `inspection-vpc` environment for human
+approval before its first step runs. The applied plan is archived for 90 days.
+
+**destroy** — same gate, with three additional guards. The confirmation text
+must be the **exact stage name** rather than a generic word, so a mis-clicked
+dropdown cannot be carried through by muscle memory. The stage list is ordered
+in reverse (`07` → `01`), matching the order teardown must follow. And a
+read-only **preview job runs before the approval gate**, generating the full
+destroy plan into the run summary — so the approver sees exactly which
+resources will be removed before deciding, and the job then applies that exact
+saved plan rather than re-planning afterwards.
+
+`00_bootstrap` is excluded from every workflow that touches AWS. It owns the
+state bucket and lock table that every other stage depends on, and keeps its
+own state locally; planning or destroying it from CI would operate on the
+foundation the rest of the pipeline is standing on.
+
+### Two independent gates
+
+```
+branch protection ──► what reaches main
+                        PR required, 4 status checks must pass,
+                        force pushes blocked
+
+environment gate  ──► what reaches AWS
+                        human approval + AWS-side enforcement
+```
+
+The second one is enforced twice over. Declaring `environment: inspection-vpc`
+is what holds the job for approval — and it is also what sets the OIDC subject
+claim that the apply role trusts. Removing that line to skip the approval
+changes the subject, so AWS refuses to issue credentials and the job fails at
+authentication. The gate is not enforced by the thing an author can edit.
+
+### Local use
+
+The stages carry no hardcoded AWS CLI profile; the profile variables default to
+`null`, which falls through to the default credential chain. The same
+configuration therefore runs unchanged on a workstation (`export
+AWS_PROFILE=...`) and on a CI runner, where the credentials arrive from OIDC.
+
 ## Tooling
 
 Terraform / OpenTofu, AWS SAM, CloudFormation, AWS CLI, Python, Bash, and a
-devcontainer for a consistent local environment.
+devcontainer for a consistent local environment. CI/CD is GitHub Actions,
+authenticating to AWS via OIDC federation with tflint and Checkov for static
+analysis.
 
 ## Repository conventions
 
